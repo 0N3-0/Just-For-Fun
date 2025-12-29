@@ -1,0 +1,202 @@
+#!/bin/bash
+
+show_help() {
+    echo "Usage: onetools [Options]"
+    echo "Options:"
+    echo "  --package/-P=<Options> 使用指定包管理器(yay/pacman)进行搜索并下载"
+    echo "  --manage,-M         管理已有包"
+    echo "  -h, --help          显示帮助"
+}
+
+OPTION=""
+TARGET=""
+
+
+# 手动解析参数
+for arg in "$@"; do
+    case $arg in
+        --package=*)
+            OPTION="${arg#*=}"  # 获取等号右边的值
+            shift
+            ;;
+               -P=*)
+            OPTION="${arg#*=}"  # 获取等号右边的值
+            shift
+            ;;
+        -M|--manage)
+            echo "施工中"
+            ;;
+          -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            if [[ -z "$TARGET" ]]; then
+                TARGET="$arg"
+            else
+                echo "Unknown parameter: $arg"
+                show_help
+                exit 1
+            fi
+            ;;
+    esac
+done
+
+
+LINES=$(tput lines)
+COLS=$(tput cols)
+
+if [[ "$COLS" -lt 100 ]]; then
+    FZF_HEIGHT="100%"
+    PREVIEW_WIN="down:50%:wrap"
+else
+    FZF_HEIGHT="100%"
+    PREVIEW_WIN="right:60%:wrap"
+fi
+
+select_packages(){ 
+  if [[ -z "$OPTION" || -z "$1" ]]; then
+    show_help
+    exit 1
+  fi
+  case "$OPTION" in
+    yay)
+      SEARCH_CMD="yay -Ss \"$1\" 2> ~/log"
+      PREVIEW_CMD="yay -Sii {4} 2> ~/log | sed 's/  \+/ /g'"
+      ;;
+    pac)
+      SEARCH_CMD="pacman -Ss \"$1\" 2> ~/log"
+      PREVIEW_CMD="pacman -Sii {4} 2> ~/log | sed 's/  \+/ /g'"
+      ;;
+    *)
+      echo "Unknown package manager: $OPTION"
+      show_help
+      exit 1
+
+      ;;
+  esac
+
+  selected=$(
+    eval "$SEARCH_CMD" \
+    | awk '  
+      /^[^ ]+\/[^ ]+ / {
+            split($1,a,"/")
+            repo = a[1]
+            pkg = a[2]
+            ver = $2
+            printf "%-12s\t%-30.30s\t%s\t%s\n", repo, pkg, ver, pkg
+       }
+     ' \
+     | fzf \
+        --prompt="选择一个包: " \
+        --height="$FZF_HEIGHT" \
+        --exact \
+        --reverse \
+        --with-nth=1,2,3 \
+        --preview "$PREVIEW_CMD" \
+        --preview-window="$PREVIEW_WIN" \
+        --border 
+      )
+    echo "$selected"
+}
+
+choose_action() {
+    printf "继续\n安装\n删除\n取消\n列表" \
+      | fzf \
+         --prompt="选择操作: " \
+         --height="$FZF_HEIGHT" \
+         --exact \
+         --reverse \
+         --border
+}
+
+input_target() {
+    printf "" \
+     | fzf \
+        --prompt="输入搜索关键词: " \
+        --print-query \
+        --height="$FZF_HEIGHT" \
+        --exact \
+        --reverse \
+        --border
+}
+
+install_package(){
+  case "$OPTION" in
+      yay)
+        yay -S "$1"
+          ;;
+      pac)
+        sudo pacman -S "$1"
+          ;;
+      *)
+         echo "Unknown package manager: $OPTION"
+         show_help
+         exit 1
+         ;;
+  esac
+}
+
+show_list(){
+  for p in "$@"; do
+      if [[ -n "$p" ]];then
+         echo "$p"
+      fi
+  done | fzf \
+   --no-sort \
+   --prompt="已选包列表: " \
+   --height="$FZF_HEIGHT" \
+   --preview "$PREVIEW_CMD" \
+   --with-nth=1,2,3 \
+   --preview-window="$PREVIEW_WIN" \
+   --reverse \
+   --border
+ }
+if [[ -n "$TARGET" && -n "$OPTION" ]]; then
+        SELECTED_PACKAGES=()
+        mapfile -t SELECTED_PACKAGES < <(select_packages "$TARGET")
+        TARGET=""
+        show_list "${SELECTED_PACKAGES[@]}" >> /dev/null
+        while true;do
+        ACTION=$(choose_action)
+        case "$ACTION" in
+            "继续")
+                TARGET=$(input_target | head -n1)
+                [[ -z "$TARGET" ]] && break
+                NEW_SELECTION=$(select_packages "$TARGET")
+                [[ -z "$NEW_SELECTION" ]] && continue
+                SELECTED_PACKAGES+=("$NEW_SELECTION")
+                show_list "${SELECTED_PACKAGES[@]}" >> /dev/null
+                ;;
+            "安装")
+                for p in "${SELECTED_PACKAGES[@]}"; do
+                    if [[ -n "$p" ]];then
+                         install_package $(echo "$p" | awk '{print $4}')
+                    fi
+                done
+                exit 0
+                ;;
+            "删除")
+                REMOVE=$(for p in "${SELECTED_PACKAGES[@]}"; do
+                           [[ -n "$p" ]] && echo "$p"
+                       done | fzf \
+                       --prompt="选择要删除的包: " \
+                       --reverse \
+                       --height="$FZF_HEIGHT" \
+                       --with-nth=1,2,3 \
+                       --preview "$PREVIEW_CMD" \
+                       --preview-window="$PREVIEW_WIN" \
+                       --border)
+                SELECTED_PACKAGES=("${SELECTED_PACKAGES[@]/$REMOVE}")
+                show_list "${SELECTED_PACKAGES[@]}" >> /dev/null
+                ;;
+              "列表")
+                show_list "${SELECTED_PACKAGES[@]}" >> /dev/null
+                ;;
+            "取消"|*)
+                echo "取消操作"
+                exit 0
+                ;;
+        esac
+    done
+fi
