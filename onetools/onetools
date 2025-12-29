@@ -14,32 +14,25 @@ TARGET=""
 
 # 手动解析参数
 for arg in "$@"; do
-    case $arg in
-        --package=*)
-            OPTION="${arg#*=}"  # 获取等号右边的值
-            shift
-            ;;
-               -P=*)
-            OPTION="${arg#*=}"  # 获取等号右边的值
-            shift
-            ;;
-        -M|--manage)
-            echo "施工中"
-            ;;
-          -h|--help)
-            show_help
-            exit 0
-            ;;
-        *)
-            if [[ -z "$TARGET" ]]; then
-                TARGET="$arg"
-            else
-                echo "Unknown parameter: $arg"
-                show_help
-                exit 1
-            fi
-            ;;
-    esac
+  case $arg in
+    --package=*)
+      OPTION="${arg#*=}"  # 获取等号右边的值
+      shift
+      ;;
+    -P=*)
+      OPTION="${arg#*=}"  # 获取等号右边的值
+      shift
+      ;;
+    -M|--manage)
+      echo "施工中"
+      ;;
+    -h|--help)
+      show_help
+      exit 0
+      ;;
+      *)
+      exit 0
+  esac
 done
 
 
@@ -47,11 +40,11 @@ LINES=$(tput lines)
 COLS=$(tput cols)
 
 if [[ "$COLS" -lt 100 ]]; then
-    FZF_HEIGHT="100%"
-    PREVIEW_WIN="down:50%:wrap"
+  FZF_HEIGHT="100%"
+  PREVIEW_WIN="down:50%:wrap"
 else
-    FZF_HEIGHT="100%"
-    PREVIEW_WIN="right:60%:wrap"
+  FZF_HEIGHT="100%"
+  PREVIEW_WIN="right:60%:wrap"
 fi
 
 select_packages(){ 
@@ -101,7 +94,7 @@ select_packages(){
 }
 
 choose_action() {
-    printf "继续\n安装\n删除\n取消\n列表" \
+    printf "搜索\n安装\n删除\n取消\n列表" \
       | fzf \
          --prompt="选择操作: " \
          --height="$FZF_HEIGHT" \
@@ -152,20 +145,17 @@ show_list(){
    --reverse \
    --border
  }
-if [[ -n "$TARGET" && -n "$OPTION" ]]; then
+if [[  -n "$OPTION" ]]; then
         SELECTED_PACKAGES=()
-        mapfile -t SELECTED_PACKAGES < <(select_packages "$TARGET")
-        TARGET=""
-        show_list "${SELECTED_PACKAGES[@]}" >> /dev/null
         while true;do
         ACTION=$(choose_action)
         case "$ACTION" in
-            "继续")
+            "搜索")
                 TARGET=$(input_target | head -n1)
                 [[ -z "$TARGET" ]] && break
                 NEW_SELECTION=$(select_packages "$TARGET")
                 [[ -z "$NEW_SELECTION" ]] && continue
-                SELECTED_PACKAGES+=("$NEW_SELECTION")
+                mapfile -t SELECTED_PACKAGES < <("$NEW_SELECTION")
                 show_list "${SELECTED_PACKAGES[@]}" >> /dev/null
                 ;;
             "安装")
